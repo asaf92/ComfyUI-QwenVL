@@ -372,6 +372,7 @@ class AILab_QwenVL_Advanced:
                 passed_frame_count = len(sampled_frames)
                 computed_sample_fps = passed_frame_count / duration_sec
                 messages[0]["content"].append({
+                    "type": "video",
                     "video": sampled_frames,
                     # This is the REAL effective sampling rate of the frames you are about to send.
                     # Float is fine; qwen_vl_utils will treat it as fps-ish.
