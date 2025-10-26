@@ -282,7 +282,7 @@ class AILab_QwenVL_Advanced:
                 # Pre-sampling in this node
                 "frame_count": ("INT", {"default": 16, "min": 1, "max": 256, "step": 1}),
                 # Cookbook-aligned video controls
-                "original_fps": ("float", {"default": 30.0, "min": 0.25, "max": 60, "step": 0.01}),
+                "original_fps": ("FLOAT", {"default": 30.0, "min": 0.25, "max": 60, "step": 0.01}),
                 "max_frames": ("INT", {"default": 2048, "min": 4, "max": 8192, "step": 1}),
                 "total_pixels": ("INT", {"default": 20480 * 32 * 32, "min": 32 * 32, "max": 65536 * 32 * 32, "step": 32 * 32}),
                 "min_pixels": ("INT", {"default": 64 * 32 * 32, "min": 32 * 32, "max": 4096 * 32 * 32, "step": 32 * 32}),
