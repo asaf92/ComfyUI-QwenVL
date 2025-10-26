@@ -282,7 +282,7 @@ class AILab_QwenVL_Advanced:
                 # Pre-sampling in this node
                 "frame_count": ("INT", {"default": 16, "min": 1, "max": 256, "step": 1}),
                 # Cookbook-aligned video controls
-                "original_fps": ("INT", {"default": 16, "min": 1, "max": 60, "step": 1}),
+                "original_fps": ("float", {"default": 30.0, "min": 0.25, "max": 60, "step": 0.01}),
                 "max_frames": ("INT", {"default": 2048, "min": 4, "max": 8192, "step": 1}),
                 "total_pixels": ("INT", {"default": 20480 * 32 * 32, "min": 32 * 32, "max": 65536 * 32 * 32, "step": 32 * 32}),
                 "min_pixels": ("INT", {"default": 64 * 32 * 32, "min": 32 * 32, "max": 4096 * 32 * 32, "step": 32 * 32}),
@@ -311,7 +311,7 @@ class AILab_QwenVL_Advanced:
         repetition_penalty,
         num_beams,
         frame_count,
-        sample_fps,
+        original_fps,
         max_frames,
         total_pixels,
         min_pixels,
@@ -341,6 +341,11 @@ class AILab_QwenVL_Advanced:
             if image is not None:
                 pil_images.append(self.image_processor.to_pil(image))
 
+            # Build cookbook-aligned messages
+            messages = [{"role": "user", "content": []}]
+            for img in pil_images:
+                messages[0]["content"].append({"image": img})
+
             if video is not None:
                 # Convert ComfyUI video tensor/sequence into list of PIL frames
                 try:
@@ -348,9 +353,15 @@ class AILab_QwenVL_Advanced:
                 except TypeError:
                     raise ValueError("The 'video' input is not iterable. Expected a sequence of frames.")
                 video_frames = [Image.fromarray((frame.cpu().numpy() * 255).astype(np.uint8)) for frame in video]
+                original_total_frames = len(video_frames)
+                if original_total_frames < 1:
+                    raise ValueError("Video has no frames")
+
+                duration_sec = original_total_frames / original_fps
+
                 # Uniform pre-sampling to 'frame_count'
                 if len(video_frames) > frame_count:
-                    indices = np.linspace(0, len(video_frames) - 1, frame_count, dtype=int)
+                    indices = np.linspace(0, original_total_frames - 1, frame_count, dtype=int)
                     sampled_frames = [video_frames[i] for i in indices]
                 else:
                     sampled_frames = video_frames
@@ -358,18 +369,20 @@ class AILab_QwenVL_Advanced:
                 if sampled_frames and len(sampled_frames) == 1:
                     sampled_frames.append(sampled_frames[0])
 
-            # Build cookbook-aligned messages
-            messages = [{"role": "user", "content": []}]
-            for img in pil_images:
-                messages[0]["content"].append({"image": img})
-            if sampled_frames:
+                passed_frame_count = len(sampled_frames)
+                computed_sample_fps = passed_frame_count / duration_sec
                 messages[0]["content"].append({
                     "video": sampled_frames,
-                    "sample_fps": int(sample_fps),
+                    # This is the REAL effective sampling rate of the frames you are about to send.
+                    # Float is fine; qwen_vl_utils will treat it as fps-ish.
+                    "sample_fps": float(computed_sample_fps),
+                    # The _original video_ fps
+                    "raw_fps": float(original_fps),
                     "max_frames": int(max_frames),
                     "total_pixels": int(total_pixels),
                     "min_pixels": int(min_pixels),
                 })
+
             messages[0]["content"].append({"type": "text", "text": prompt_text})
 
             # Use chat template
@@ -402,26 +415,7 @@ class AILab_QwenVL_Advanced:
                     **(video_kwargs or {})
                 )
             else:
-                print("qwen_vl_utils not found - using fallback")
-                # Minimal fallback; try sample_fps (as per cookbook), otherwise no extra kwargs
-                videos_arg = [sampled_frames] if sampled_frames else None
-                try:
-                    inputs = self.processor(
-                        text=[text_prompt],
-                        images=pil_images if pil_images else None,
-                        videos=videos_arg,
-                        sample_fps=int(sample_fps),
-                        return_tensors="pt",
-                    )
-                except TypeError:
-                    inputs = self.processor(
-                        text=[text_prompt],
-                        images=pil_images if pil_images else None,
-                        videos=videos_arg,
-                        return_tensors="pt",
-                    )
-                    if videos_arg:
-                        print("[warning] Processor rejected 'sample_fps'; proceeding with defaults (may assume 24 fps).")
+                raise ValueError("could not find qwen-vl-utils")
 
             # Move tensors to device
             model_inputs = {k: v.to(effective_device) for k, v in inputs.items() if torch.is_tensor(v)}
@@ -491,7 +485,7 @@ class AILab_QwenVL(AILab_QwenVL_Advanced):
             repetition_penalty=1.2,
             num_beams=1,
             frame_count=16,
-            sample_fps=16,
+            original_fps=16,
             max_frames=2048,
             total_pixels=20480 * 32 * 32,
             min_pixels=64 * 32 * 32,
